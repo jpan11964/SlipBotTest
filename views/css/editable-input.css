@@ -1,0 +1,49 @@
+.editable-input {
+  width: 100%;
+  height: 150px;
+  padding: 10px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  font-family: 'Noto Sans Thai', 'Inter', sans-serif;
+  line-height: 1.6;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  box-sizing: border-box;
+  background: var(--white);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+
+.editable-input:empty::before {
+  content: attr(data-placeholder);
+  color: #94a3b8;
+  white-space: pre-wrap;
+  pointer-events: none;
+}
+
+.editable-input:focus {
+  border-color: var(--blue);
+  background: var(--white);
+  box-shadow: 0 0 0 3px var(--blue-muted);
+}
+
+.editable-input span {
+  display: inline;
+  line-height: inherit;
+}
+
+.editable-input * {
+  vertical-align: baseline;
+}
+
+.editable-input::-webkit-scrollbar {
+  width: 4px;
+}
+
+.editable-input::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 99px;
+}

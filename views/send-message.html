@@ -1,0 +1,79 @@
+
+
+<div class="send-message-page">
+  <h1 class="page-title">ส่งข้อความ Line</h1>
+  <div class="send-message-container">
+
+  <!-- ✅ container ครอบ form -->
+    <form id="sendMessageForm" class="form-grid">
+
+      <!-- 🔍 ช่องกรอก userId -->
+      <div class="form-group small">
+        <label for="userId">ผู้รับ:</label>
+        <div 
+          id="userId" 
+          contenteditable="true" 
+          class="editable-input" 
+          data-placeholder="กรอกรหัสผู้ใช้ เช่น JPN1231234 JPN1231235&#10;&#10;* เพิ่มความรวดเร็ว กรอกไม่เกิน 150 รายการ"
+        ></div>
+
+      <!-- ✅ ปุ่มค้นหา อยู่ตรงกลาง -->
+      <div class="lookup-btn-wrapper">
+        <button type="button" class="btn lookup" onclick="lookupUser()">ค้นหาผู้ใช้</button>
+      </div>
+
+        <!-- 🔎 แสดงผลลัพธ์ -->
+        <div id="lookup-status" class="lookup-status"></div>
+        <div id="user-not-found" class="user-not-found"></div>
+      </div>
+
+      <!-- 💬 กล่องกรอกข้อความพร้อมปุ่มเลือกรูปภาพด้านใน -->
+      <div class="form-group large">
+        <label for="message">ข้อความ:</label>
+
+          <div class="textarea-wrapper">
+            <textarea id="message" name="message" placeholder="พิมพ์ข้อความที่ต้องการส่ง ..." style="font-family: 'Prompt', sans-serif;" required></textarea>
+
+            <!-- ✅ ปุ่มอัปโหลดรูปแบบไอคอนในกล่อง -->
+            <label for="imageUpload" class="image-upload-btn" title="เลือกรูปภาพ">
+              <img src="https://s.imgz.io/2025/10/19/pngwing.com-1f579652ac9c8637b.png" alt="เลือกรูปภาพ" style="width: 30px; height: 30px;">
+            </label>
+            <div id="preview-image" class="preview-image" style="display: none;">
+              <div class="image-preview-wrapper">
+                <img id="preview-img" src="" alt="Preview" />
+                <button type="button" class="delete-image-btn" onclick="removeImage()" title="ลบรูปภาพ">×</button>
+              <div class="loading-text">กำลังโหลด...</div>
+            </div>
+          </div>
+
+
+            <input type="file" id="imageUpload" accept="image/*" style="display: none;" onchange="handleImageSelect(event)">
+          </div>
+
+        <div class="sending-btn-wrapper">
+          <button type="button" class="btn sending" onclick="sendMessageToFoundUsers(event)">ส่งข้อความ</button>
+        </div>
+      </div>
+    </form>
+
+    <!-- 📦 กล่องสถานะ -->
+    <div class="status-section">
+      <h3>สถานะการส่ง</h3>
+      <div id="statusBox" class="status-box">
+        <table class="log-table" id="logTable">
+          <tbody id="logBody"></tbody>
+        </table>
+      </div>
+  </div>
+
+  <!-- Modal แสดงรายชื่อ User ที่ไม่พบ -->
+  <div id="notFoundUsersModal" class="notfound-modal" style="display: none;">
+    <div class="notfound-modal-content">
+      <span class="close" onclick="closeNotFoundUsersModal()">&times;</span>
+      <h3 id="notFoundUsersCount" style="margin-bottom: 15px;">ไม่พบ USER</h3>
+      <div id="notFoundUsersList"></div>
+    </div>
+  </div>
+
+<script src="/views/js/send-message.js"></script>
+
