@@ -3,14 +3,21 @@ import mongoose from "mongoose";
 
 const roleSchema = new mongoose.Schema({
   username: { type: String, required: true },
-  password: { type: String, required: true }
+  password: { type: String, required: true },
+  // สิทธิ์ที่ OWNER กำหนดให้ผู้ใช้คนนี้ (ใช้กับ ADMIN/USER เท่านั้น — OWNER ได้ทุกสิทธิ์เสมอ)
+  permissions: {
+    sidebar: { type: [String], default: [] },         // เมนู sidebar ที่เห็นได้ เช่น ["main","dashboard"]
+    shopButtons: { type: [String], default: [] },     // ปุ่มในหน้าหลัก เช่น ["toggle","line","bank"]
+    setbotFunctions: { type: [String], default: [] }, // ฟังก์ชันย่อยในปุ่มตั้งค่าบอท เช่น ["withdraw","textbot"]
+    adminPages: { type: [String], default: [] },      // สิทธิ์ผู้จัดการ (เฉพาะ ADMIN) เช่น ["permissions","prefixes"]
+  }
 });
 
 // ใช้ schema หลักที่เก็บเป็นกลุ่ม role
 const credentialsSchema = new mongoose.Schema({
   OWNER: [roleSchema],
   ADMIN: [roleSchema],
-  MARKETING: [roleSchema]
+  USER: [roleSchema]
 });
 
 const Credentials =

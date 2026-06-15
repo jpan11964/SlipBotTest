@@ -1,0 +1,20 @@
+<div class="prefixes-page">
+  <div class="prefixes-container">
+    <h1 class="page-title">จัดการ Prefix</h1>
+    <p class="prefixes-subtitle">เพิ่มหรือลบ prefix ที่ใช้สร้างร้านค้า (prefix ที่มีร้านใช้อยู่จะลบไม่ได้)</p>
+
+    <div class="prefix-add-bar">
+      <input type="text" id="newPrefixInput" placeholder="กรอก prefix ใหม่ (เช่น ABC)"
+        maxlength="10" onkeydown="if(event.key==='Enter') submitAddPrefix()" autocomplete="off">
+      <button class="prefix-add-btn" onclick="submitAddPrefix()">
+        <i class="bi bi-plus-lg"></i> เพิ่ม
+      </button>
+    </div>
+    <div class="prefix-add-status" id="prefixAddStatus"></div>
+
+    <div class="prefix-grid" id="prefixGrid">
+      <p class="prefix-loading">กำลังโหลด...</p>
+    </div>
+  </div>
+</div>
+<script src="/views/js/prefixes.js"></script>

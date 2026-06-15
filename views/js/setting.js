@@ -1,7 +1,7 @@
 (function() {
     const DEFAULT_SETTINGS = {
-      timeLimit: 180,
-      sameQrTimeLimit: 3600,
+      timeLimit: 3,          // นาที (แสดงผล) — 3 นาที = 180000 ms
+      sameQrTimeLimit: 60,   // นาที (แสดงผล) — 60 นาที = 3600000 ms
       maxMessagesPerUser: 3,
       maxMessagesSamePerUser: 2,
       maxProcessingPerUser: 2
@@ -14,13 +14,17 @@
           if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       
           const settings = await response.json();
-      
-          document.getElementById('timeLimit').value = settings.timeLimit;
-          document.getElementById('sameQrTimeLimit').value = settings.sameQrTimeLimit;
-          document.getElementById('maxMessagesPerUser').value = settings.maxMessagesPerUser;
-          document.getElementById('maxMessagesSamePerUser').value = settings.maxMessagesSamePerUser;
-          document.getElementById('maxProcessingPerUser').value = settings.maxProcessingPerUser;
-      
+
+          // ถ้าผู้ใช้เปลี่ยนไปหน้าอื่นแล้ว (input หายไป) ให้ออกเงียบๆ ไม่ขึ้น error
+          const el = (id) => document.getElementById(id);
+          if (!el('timeLimit')) return;
+
+          el('timeLimit').value = settings.timeLimit;
+          el('sameQrTimeLimit').value = settings.sameQrTimeLimit;
+          el('maxMessagesPerUser').value = settings.maxMessagesPerUser;
+          el('maxMessagesSamePerUser').value = settings.maxMessagesSamePerUser;
+          el('maxProcessingPerUser').value = settings.maxProcessingPerUser;
+
         } catch (error) {
           console.error('Error loading settings:', error);
           alert('ไม่สามารถโหลดการตั้งค่าได้: ' + error.message);
@@ -35,8 +39,8 @@
         saveBtn.textContent = 'กำลังบันทึก...';
   
         const settings = {
-          timeLimit: parseInt(document.getElementById('timeLimit').value) * 1000,          // s → ms
-          sameQrTimeLimit: parseInt(document.getElementById('sameQrTimeLimit').value) * 1000,
+          timeLimit: parseFloat(document.getElementById('timeLimit').value) * 60000,          // นาที → ms (ทศนิยมได้)
+          sameQrTimeLimit: parseFloat(document.getElementById('sameQrTimeLimit').value) * 60000, // นาที → ms (ทศนิยมได้)
           maxMessagesPerUser: parseInt(document.getElementById('maxMessagesPerUser').value),
           maxMessagesSamePerUser: parseInt(document.getElementById('maxMessagesSamePerUser').value),
           maxProcessingPerUser: parseInt(document.getElementById('maxProcessingPerUser').value)
@@ -82,8 +86,8 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              timeLimit: DEFAULT_SETTINGS.timeLimit * 1000,
-              sameQrTimeLimit: DEFAULT_SETTINGS.sameQrTimeLimit * 1000,
+              timeLimit: DEFAULT_SETTINGS.timeLimit * 60000,          // นาที → ms
+              sameQrTimeLimit: DEFAULT_SETTINGS.sameQrTimeLimit * 60000, // นาที → ms
               maxMessagesPerUser: DEFAULT_SETTINGS.maxMessagesPerUser,
               maxMessagesSamePerUser: DEFAULT_SETTINGS.maxMessagesSamePerUser,
               maxProcessingPerUser: DEFAULT_SETTINGS.maxProcessingPerUser
@@ -107,28 +111,12 @@
       }
     }
   
-    // 🔁 Export ฟังก์ชัน global
+    // 🔁 Export ฟังก์ชัน global (ปุ่ม onclick + finalize ใน index.html ใช้)
     window.resetSettings = resetSettings;
     window.loadSettings = loadSettings;
     window.saveSettings = saveSettings;
-  
-    // ⏳ โหลดค่าทันทีเมื่อ DOM พร้อม
-    function waitForAllElements(ids, callback) {
-      const allExist = ids.every(id => document.getElementById(id));
-      if (allExist) {
-        callback();
-      } else {
-        setTimeout(() => waitForAllElements(ids, callback), 100);
-      }
-    }
 
-    // เรียกเมื่อทุก input พร้อมแล้ว
-    waitForAllElements([
-      "timeLimit",
-      "sameQrTimeLimit",
-      "maxMessagesPerUser",
-      "maxMessagesSamePerUser",
-      "maxProcessingPerUser"
-    ], loadSettings);
+    // หมายเหตุ: การโหลดค่าเริ่มต้นถูกเรียกผ่าน finalize() ใน index.html ทุกครั้งที่เข้าหน้านี้
+    // (สคริปต์โหลดครั้งเดียวแบบ SPA — จึงไม่ auto-load ที่นี่ เพื่อให้กลับมาหน้าเดิมแล้วโหลดค่าใหม่)
   })();
   

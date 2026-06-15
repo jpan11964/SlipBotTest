@@ -5,11 +5,11 @@ window.allLoaded = false;
 window.slipResults = [];
 
 // ===== ตัวกรองร้าน (อ่านค่าที่เลือกจากหน้าหลักผ่าน localStorage) =====
-const SHOP_FILTER_KEY = "displayedShopPrefixes";
-
+// ไม่ประกาศ const/let ที่ top-level เพราะ main.js ก็ประกาศ SHOP_FILTER_KEY ใน global scope เดียวกัน
+// (สองไฟล์โหลดใน global scope เดียวกัน — ประกาศชื่อซ้ำจะ SyntaxError) จึงใช้ string ตรงๆ
 function getDisplayedPrefixes() {
   try {
-    const raw = localStorage.getItem(SHOP_FILTER_KEY);
+    const raw = localStorage.getItem("displayedShopPrefixes");
     if (!raw) return null; // null = แสดงทุกร้าน
     const arr = JSON.parse(raw);
     return Array.isArray(arr) ? arr : null;
@@ -23,24 +23,21 @@ function isSlipDisplayed(prefix) {
   return !sel || sel.includes(prefix);
 }
 
-const headScroll = document.getElementById("scroll-x");
-const bodyScroll = document.getElementById("scroll-body");
 
-let isSyncing = false;
+function clearLoadingRow() {
+  const loadingRow = document.getElementById("loading-row");
+  if (loadingRow) loadingRow.remove();
+}
 
-headScroll.addEventListener("scroll", () => {
-  if (isSyncing) return;
-  isSyncing = true;
-  bodyScroll.scrollLeft = headScroll.scrollLeft;
-  isSyncing = false;
-});
-
-bodyScroll.addEventListener("scroll", () => {
-  if (isSyncing) return;
-  isSyncing = true;
-  headScroll.scrollLeft = bodyScroll.scrollLeft;
-  isSyncing = false;
-});
+function showEmptyRow(text) {
+  const tbody = document.getElementById("slip-results-body");
+  if (!tbody) return;
+  clearLoadingRow();
+  if (tbody.querySelector("tr")) return; // มีแถวข้อมูลอยู่แล้ว ไม่ต้องแสดง
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td colspan="9" style="text-align:center;color:#94a3b8;padding:24px;">${text}</td>`;
+  tbody.appendChild(tr);
+}
 
 async function loadSlipResults() {
   try {
@@ -49,10 +46,17 @@ async function loadSlipResults() {
     if (!Array.isArray(data)) throw new Error("ไม่ใช่ array");
 
     data.sort((a, b) => new Date(b.createdAt || b.time) - new Date(a.createdAt || a.time));
-    slipResults = data;
+    window.slipResults = data;
     renderSlipResults(0, visibleCount);
+
+    // ถ้าหลัง render แล้วไม่มีแถวเลย → แจ้งให้รู้ (ไม่ค้างที่ "กำลังโหลด...")
+    const tbody = document.getElementById("slip-results-body");
+    if (tbody && !tbody.querySelector("tr")) {
+      showEmptyRow(getDisplayedPrefixes() ? "ไม่มีข้อมูลตามตัวกรองร้านที่เลือก" : "ยังไม่มีข้อมูลสลิป");
+    }
   } catch (err) {
     console.error("❌ โหลด slip ล้มเหลว:", err);
+    showEmptyRow("โหลดข้อมูลไม่สำเร็จ");
   }
 }
 
@@ -127,13 +131,11 @@ function getStatusReply(status) {
 
 
 function setupScrollListener() {
-  const container = document.querySelector(".dashboard-table-wrapper");
+  const container = document.getElementById("dashboard-scroll");
   const loadingMsg = document.getElementById("loading-message");
 
-  if (!container) {
-    console.warn("⚠️ ไม่พบ dashboard-table-wrapper สำหรับ scroll");
-    return;
-  }
+  if (!container || container.dataset.scrollBound) return;
+  container.dataset.scrollBound = "1";
 
   container.addEventListener("scroll", () => {
     if (
@@ -142,7 +144,7 @@ function setupScrollListener() {
       container.scrollTop + container.clientHeight >= container.scrollHeight - 20
     ) {
       isLoadingMore = true;
-      loadingMsg.innerText = "กำลังโหลดเพิ่มเติม...";
+      if (loadingMsg) loadingMsg.innerText = "กำลังโหลดเพิ่มเติม...";
       setTimeout(() => {
         const previousCount = visibleCount;
         visibleCount += LOAD_STEP;
@@ -352,36 +354,12 @@ function setupPhoneTripleClick() {
   });
 }
 
-// ===== สถานะ GPT (Level 3) =====
-async function refreshGptStatus() {
-  const banner = document.getElementById("gpt-status-banner");
-  const text = document.getElementById("gpt-status-text");
-  if (!banner || !text) return;
-
-  try {
-    const res = await fetch("/api/gpt-status");
-    const status = await res.json();
-
-    if (status.disabled) {
-      text.textContent = `GPT ปิดอยู่ (โควต้าหมด) — เปิดใหม่อัตโนมัติในอีก ${status.minutesLeft} นาที`;
-      banner.hidden = false;
-    } else {
-      banner.hidden = true;
-    }
-  } catch (err) {
-    console.error("❌ เช็คสถานะ GPT ล้มเหลว:", err);
-  }
-}
-
 function initDashboardSlip() {
   loadSlipResults();
   setupScrollListener();
   connectSSE();
   setupPhoneInputHandlers();
   setupPhoneTripleClick();
-
-  refreshGptStatus();
-  setInterval(refreshGptStatus, 60000); // เช็คสถานะ GPT ทุก 1 นาที
 }
 
 window.initDashboardSlip = initDashboardSlip;

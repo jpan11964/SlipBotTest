@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SlipCheck</title>
+  <title>$lipCheck</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
@@ -17,44 +17,86 @@
   <link rel="stylesheet" href="/views/css/modal-notfound.css">
   <link rel="stylesheet" href="/views/css/editable-input.css">
   <link rel="stylesheet" href="/views/css/logs.css">
+  <link rel="stylesheet" href="/views/css/permissions.css">
+  <link rel="stylesheet" href="/views/css/prefixes.css">
 </head>
 <body>
   <aside class="sidebar">
     <div class="logo">
       <i class="bi bi-shield-check"></i>
-      <span>SlipCheck</span>
+      <span>$lipCheck</span>
     </div>
+    <!-- ทุกเมนูเริ่มต้นเป็น hidden — เปิดเฉพาะที่มีสิทธิ์หลังโหลด /api/me เพื่อกันการแว๊บเห็นเมนูต้องห้าม -->
     <ul>
-      <li onclick="navigateTo(event, 'main')">
+      <li data-page="main" onclick="navigateTo(event, 'main')" hidden>
         <i class="bi bi-house-door"></i>
         <span>หน้าหลัก</span>
       </li>
-      <li onclick="navigateTo(event, 'dashboard')">
+      <li data-page="dashboard" onclick="navigateTo(event, 'dashboard')" hidden>
         <i class="bi bi-bar-chart-line"></i>
         <span>การทำงานบอท</span>
       </li>
-      <li onclick="navigateTo(event, 'logs')">
+      <li data-page="logs" onclick="navigateTo(event, 'logs')" hidden>
         <i class="bi bi-terminal"></i>
         <span>Logs</span>
       </li>
-      <li onclick="navigateTo(event, 'settings')">
+      <li data-page="settings" onclick="navigateTo(event, 'settings')" hidden>
         <i class="bi bi-sliders2"></i>
         <span>ตั้งค่าการตรวจสลิป</span>
       </li>
-      <li onclick="navigateTo(event, 'send-message')">
+      <li data-page="send-message" onclick="navigateTo(event, 'send-message')" hidden>
         <i class="bi bi-send"></i>
         <span>ส่งข้อความ LINE</span>
       </li>
+      <li data-page="prefixes" onclick="navigateTo(event, 'prefixes')" hidden>
+        <i class="bi bi-tags"></i>
+        <span>จัดการ Prefix</span>
+      </li>
+      <li data-page="permissions" onclick="navigateTo(event, 'permissions')" hidden>
+        <i class="bi bi-shield-lock"></i>
+        <span>จัดการสิทธิ์ผู้ใช้</span>
+      </li>
     </ul>
     <div class="footer">
-      <a href="/logout">
-        <i class="bi bi-box-arrow-left"></i>
-        <span>ออกจากระบบ</span>
-      </a>
+      <div class="user-card">
+        <i class="bi bi-person-circle user-avatar"></i>
+        <span class="user-name" id="footerUsername">-</span>
+        <button class="user-menu-btn" onclick="toggleUserMenu(event)" title="ตัวเลือก">
+          <i class="bi bi-three-dots"></i>
+        </button>
+        <div class="user-menu" id="userMenu" hidden>
+          <button class="user-menu-item" onclick="openChangePwModal()">
+            <i class="bi bi-key"></i> เปลี่ยนรหัสผ่าน
+          </button>
+          <a class="user-menu-item logout" href="/logout">
+            <i class="bi bi-box-arrow-left"></i> ออกจากระบบ
+          </a>
+        </div>
+      </div>
     </div>
   </aside>
 
   <div class="content" id="main-content"></div>
+
+  <!-- Modal: เปลี่ยนรหัสผ่านของตัวเอง -->
+  <div class="perm-modal" id="changePwModal" hidden>
+    <div class="perm-modal-box">
+      <div class="perm-modal-head">
+        <h3>เปลี่ยนรหัสผ่าน</h3>
+        <button class="perm-modal-close" onclick="closeChangePwModal()">&times;</button>
+      </div>
+      <div class="perm-field">
+        <label>รหัสผ่านปัจจุบัน</label>
+        <input type="password" id="currentPassword" autocomplete="off">
+      </div>
+      <div class="perm-field">
+        <label>รหัสผ่านใหม่</label>
+        <input type="password" id="newPassword" autocomplete="off">
+      </div>
+      <div class="perm-modal-status" id="changePwStatus"></div>
+      <button class="perm-modal-save" onclick="submitChangePw()">บันทึก</button>
+    </div>
+  </div>
 
   <script>
     function escapeHTML(str) {
@@ -90,13 +132,20 @@
           tempDiv.innerHTML = html
           const scripts = tempDiv.querySelectorAll("script[src]")
 
-          let loaded = 0
-          if (scripts.length === 0) finalize()
+          // โหลดแต่ละสคริปต์ครั้งเดียวพอ — ครั้งต่อไปไฟล์ถูกนิยามแล้ว เรียก init ได้เลย
+          // (กันสคริปต์ execute ซ้ำแล้วเกิด SyntaxError "already declared")
+          window.__loadedScripts = window.__loadedScripts || new Set()
+          const toLoad = [...scripts].filter(tag => !window.__loadedScripts.has(tag.src))
 
-          scripts.forEach(tag => {
+          let loaded = 0
+          if (toLoad.length === 0) finalize()
+
+          toLoad.forEach(tag => {
             const s = document.createElement("script")
             s.src = tag.src
-            s.onload = () => { loaded++; if (loaded === scripts.length) finalize() }
+            const done = () => { loaded++; if (loaded === toLoad.length) finalize() }
+            s.onload = () => { window.__loadedScripts.add(tag.src); done() }
+            s.onerror = done
             document.body.appendChild(s)
           })
 
@@ -107,6 +156,15 @@
             if (page === "dashboard" && typeof initDashboardSlip === "function") {
               initDashboardSlip()
               setupSSE()
+            }
+            if (page === "permissions" && typeof initPermissionsPage === "function") {
+              initPermissionsPage()
+            }
+            if (page === "prefixes" && typeof initPrefixesPage === "function") {
+              initPrefixesPage()
+            }
+            if (page === "settings" && typeof loadSettings === "function") {
+              loadSettings()
             }
           }
 
@@ -167,7 +225,105 @@
     }
 
     function navigateTo(e, p) { loadPage(e, p) }
-    window.addEventListener("DOMContentLoaded", () => loadPage(null, "main"))
+
+    // ===== เมนูผู้ใช้ (มุมล่าง sidebar) =====
+    function toggleUserMenu(e) {
+      e.stopPropagation()
+      const menu = document.getElementById("userMenu")
+      menu.hidden = !menu.hidden
+    }
+    document.addEventListener("click", (e) => {
+      const menu = document.getElementById("userMenu")
+      const card = e.target.closest(".user-card")
+      if (menu && !card) menu.hidden = true
+    })
+
+    // ===== Modal เปลี่ยนรหัสผ่าน =====
+    function openChangePwModal() {
+      document.getElementById("userMenu").hidden = true
+      document.getElementById("currentPassword").value = ""
+      document.getElementById("newPassword").value = ""
+      document.getElementById("changePwStatus").textContent = ""
+      document.getElementById("changePwModal").hidden = false
+    }
+    function closeChangePwModal() {
+      document.getElementById("changePwModal").hidden = true
+    }
+    async function submitChangePw() {
+      const currentPassword = document.getElementById("currentPassword").value
+      const newPassword = document.getElementById("newPassword").value.trim()
+      const status = document.getElementById("changePwStatus")
+
+      if (!currentPassword || !newPassword) {
+        status.textContent = "กรุณากรอกข้อมูลให้ครบ"
+        status.className = "perm-modal-status error"
+        return
+      }
+      try {
+        const res = await fetch("/api/change-password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ currentPassword, newPassword })
+        })
+        const result = await res.json()
+        if (result.success) {
+          status.textContent = "เปลี่ยนรหัสผ่านเรียบร้อย"
+          status.className = "perm-modal-status success"
+          setTimeout(closeChangePwModal, 1200)
+        } else {
+          status.textContent = result.message || "เกิดข้อผิดพลาด"
+          status.className = "perm-modal-status error"
+        }
+      } catch (err) {
+        status.textContent = "เชื่อมต่อล้มเหลว"
+        status.className = "perm-modal-status error"
+      }
+    }
+
+    // โหลดสิทธิ์ผู้ใช้ → ซ่อนเมนูที่ไม่มีสิทธิ์ → เปิดหน้าแรกที่เข้าถึงได้
+    async function initApp() {
+      // ค่าเริ่มต้นแบบ fail-safe: ไม่มีสิทธิ์ใดๆ (กันกรณีโหลด /api/me ไม่ได้แล้วเผลอโชว์เมนูครบ)
+      let me = { role: "", permissions: { sidebar: [], shopButtons: [] } }
+      try {
+        const res = await fetch("/api/me")
+        if (res.ok) me = await res.json()
+      } catch (err) {
+        console.error("โหลดสิทธิ์ล้มเหลว", err)
+      }
+      window.__me = me
+
+      const footerName = document.getElementById("footerUsername")
+      if (footerName) footerName.textContent = me.username || "-"
+
+      const isOwner = me.role === "OWNER"
+      const allowedSidebar = me.permissions?.sidebar || []
+
+      const managerPages = ["permissions", "prefixes"]
+      const adminPages = me.permissions?.adminPages || []
+      document.querySelectorAll(".sidebar li[data-page]").forEach(li => {
+        const page = li.dataset.page
+        if (managerPages.includes(page)) {
+          // เมนูผู้จัดการ — OWNER เห็นเสมอ, ADMIN เห็นเฉพาะที่ได้รับมอบ
+          li.hidden = !(isOwner || (me.role === "ADMIN" && adminPages.includes(page)))
+        } else {
+          li.hidden = !isOwner && !allowedSidebar.includes(page)
+        }
+      })
+
+      // หน้าแรกที่ผู้ใช้เข้าถึงได้
+      const firstLi = document.querySelector(".sidebar li[data-page]:not([hidden])")
+      if (!firstLi) {
+        // ไม่มีสิทธิ์เมนูใดเลย → คง sidebar ไว้ (เพื่อให้ logout ได้) + แสดงข้อความในเนื้อหา
+        document.getElementById("main-content").innerHTML =
+          `<p style="text-align:center;padding-top:80px;font-size:15px;color:#64748b;">` +
+          `<i class="bi bi-shield-lock" style="font-size:32px;display:block;margin-bottom:12px;"></i>` +
+          `ยังไม่ได้รับสิทธิ์เข้าถึงเมนูใดๆ<br>กรุณาติดต่อเจ้าของระบบ</p>`
+        return
+      }
+      loadPage(null, firstLi.dataset.page)
+    }
+
+    window.addEventListener("DOMContentLoaded", initApp)
   </script>
 </body>
 </html>

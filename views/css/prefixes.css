@@ -1,0 +1,127 @@
+/* prefixes.css — หน้าจัดการ Prefix */
+
+.prefixes-page {
+  position: absolute;
+  top: 0; bottom: 0; right: 0;
+  left: var(--sidebar-width);
+  padding: 28px 32px;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.prefixes-container {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.prefixes-subtitle {
+  margin: -8px 0 22px;
+  font-size: 13.5px;
+  color: var(--text-muted);
+}
+
+.prefix-add-bar {
+  display: flex;
+  gap: 10px;
+}
+
+.prefix-add-bar input {
+  flex: 1;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text);
+  text-transform: uppercase;
+}
+
+.prefix-add-bar input:focus {
+  outline: none;
+  border-color: var(--blue);
+}
+
+.prefix-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  background: var(--green);
+  color: var(--white);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.prefix-add-btn:hover { background: var(--green-dark); }
+
+.prefix-add-status {
+  min-height: 18px;
+  margin: 8px 2px 0;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.prefix-add-status.success { color: var(--green-dark); }
+.prefix-add-status.error { color: var(--red); }
+
+.prefix-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.prefix-loading,
+.prefix-empty,
+.prefix-error {
+  width: 100%;
+  text-align: center;
+  padding: 36px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.prefix-error { color: var(--red); }
+
+.prefix-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 9px 9px 15px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+
+.prefix-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.5px;
+}
+
+.prefix-del-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: var(--bg);
+  color: var(--text-muted);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+
+.prefix-del-btn:hover {
+  background: var(--red);
+  color: var(--white);
+}

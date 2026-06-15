@@ -366,6 +366,11 @@ async function sendMessageToFoundUsers(event) {
   }
 
   const CONCURRENCY = 5;
+  // พักระหว่างกลุ่ม แบบสุ่มเวลา (ms) — ลดสัญญาณ bot/spam ของ LINE
+  const BATCH_DELAY_MIN = 1500; // 1.5 วินาที
+  const BATCH_DELAY_MAX = 3000; // 3 วินาที
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const randomDelay = () => BATCH_DELAY_MIN + Math.random() * (BATCH_DELAY_MAX - BATCH_DELAY_MIN);
 
   // แบ่งกลุ่มผู้ใช้เป็น batch ขนาด CONCURRENCY
   for (let i = 0; i < foundUsersFull.length; i += CONCURRENCY) {
@@ -416,6 +421,11 @@ async function sendMessageToFoundUsers(event) {
 
     // รอ batch นี้จบก่อนจะเริ่ม batch ต่อไป
     await Promise.all(batchPromises);
+
+    // พักแบบสุ่มก่อนเริ่มกลุ่มถัดไป (ไม่พักหลังกลุ่มสุดท้าย)
+    if (i + CONCURRENCY < foundUsersFull.length) {
+      await sleep(randomDelay());
+    }
   }
 
   // ปลดล็อกปุ่มส่ง + เคลียร์ข้อมูล input ทั้งหมด

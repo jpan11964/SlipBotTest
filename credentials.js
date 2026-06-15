@@ -9,15 +9,15 @@ export async function loadCredentialsFromDB() {
 
     const admins = Array.isArray(data.ADMIN) ? data.ADMIN : [];
 
-    const marketing = Array.isArray(data.MARKETING) ? data.MARKETING : [];
+    const users = Array.isArray(data.USER) ? data.USER : [];
 
-    return { owner, admins, marketing };
+    return { owner, admins, users };
   } catch (err) {
     console.error("❌ โหลด credentials ล้มเหลว:", err);
     return {
       owner: { username: "", password: "" },
       admins: [],
-      marketing: []
+      users: []
     };
   }
 }

@@ -7,9 +7,10 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import { loadCredentialsFromDB } from "./credentials.js";
+import Credentials from "./models/Temp.js";
+import { ALL_PAGES, ALL_SHOP_BUTTONS, ALL_SETBOT_FUNCS, ALL_ADMIN_PAGES, PAGE_LABELS, SHOP_BUTTON_LABELS, SETBOT_FUNC_LABELS, ADMIN_PAGE_LABELS, ROUTE_BUTTON_MAP, ROUTE_SETBOT_MAP, getUserPermissions } from "./utils/permissions.js";
 import * as crypto from "crypto";
 import { handleEvent } from "./handlers/handleEvent.js";
-import { getGptStatus } from "./handlers/textBot/textUtils/gptCategorizer.js";
 import { loadSettings, saveSettings, reloadSettings } from './utils/settingsManager.js';
 import BankAccount from "./models/BankAccount.js";
 import dotenv from "dotenv";
@@ -74,12 +75,76 @@ app.use("/views/js", express.static(path.join(__dirname, "views/js")));
 
 // Body parser
 app.use("/webhook", (req, res, next) => {
-  console.log(`📥 Incoming: ${req.method} ${req.path}`);
   next();
 });
 app.use("/webhook", express.raw({ type: "application/json" })); // อยู่บนสุด
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+
+// ===== Webhook เดียวแบบ dynamic =====
+// อ่าน shop/line จาก DB สดทุก request — เพิ่มร้าน/เปิดบอทมีผลทันที ไม่ต้อง register route ใน RAM
+// (เลิกใช้ setupWebhooks/restartWebhooks ในการสร้าง route แล้ว)
+app.post("/webhook/:prefix/:channelTag", async (req, res) => {
+  try {
+    const prefix = req.params.prefix;
+    const channelId4 = String(req.params.channelTag).replace(/\.bot$/i, ""); // "2480.bot" → "2480"
+
+    const shop = await Shop.findOne({ prefix });
+    const lineAccount = shop?.lines?.find(
+      (l) => String(l.channel_id).slice(-4) === channelId4
+    );
+
+    if (!shop || !lineAccount) {
+      console.warn(`⚠️ webhook ไม่พบร้าน/LINE: ${prefix}/${channelId4}`);
+      return res.status(200).send("OK"); // ตอบ 200 กัน LINE ส่งซ้ำรัวๆ
+    }
+
+    // req.body เป็น Buffer (จาก express.raw ด้านบน) — แปลงเป็น JSON เอง
+    const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body || {}));
+    const body = JSON.parse(rawBody.toString("utf8") || "{}");
+    const events = body.events || [];
+
+    const accessToken = String(lineAccount.access_token);
+    const client = new line.Client({ channelAccessToken: accessToken });
+
+    await Promise.all(
+      events.map((ev) => handleEvent(ev, client, prefix, lineAccount.linename, accessToken, baseURL))
+    );
+
+    res.status(200).send("OK");
+  } catch (err) {
+    console.error("❌ webhook error:", err?.message || err);
+    res.status(200).send("OK"); // อย่าให้ LINE retry ถล่ม
+  }
+});
+
+// ===== บังคับสิทธิ์ฝั่ง Backend (กันเรียก API ตรงๆ) =====
+// OWNER ผ่านทุกอย่าง — ADMIN/USER ต้องมีสิทธิ์ปุ่มนั้นๆ
+app.use(async (req, res, next) => {
+  // /api/update-shop ใช้ร่วมกันระหว่าง toggle (status) และ edit (name)
+  let needed = ROUTE_BUTTON_MAP[req.path];
+  if (req.path === "/api/update-shop") {
+    needed = (typeof req.body?.status === "boolean" && req.body?.name === undefined) ? "toggle" : "edit";
+  }
+  const setbotFunc = ROUTE_SETBOT_MAP[req.path]; // ฟังก์ชันย่อยในปุ่มตั้งค่าบอท
+
+  if (!needed && !setbotFunc) return next();
+
+  const u = req.session?.user;
+  if (!u) return res.status(401).json({ success: false, message: "กรุณาเข้าสู่ระบบ" });
+  if (u.role === "OWNER") return next();
+
+  const perms = await getUserPermissions(u.role, u.username);
+
+  // route ของฟังก์ชันย่อย ต้องมีสิทธิ์ "setbot" + ฟังก์ชันย่อยนั้น
+  if (setbotFunc) {
+    if (perms.shopButtons.includes("setbot") && perms.setbotFunctions.includes(setbotFunc)) return next();
+    return res.status(403).json({ success: false, message: "คุณไม่มีสิทธิ์ดำเนินการนี้" });
+  }
+
+  if (perms.shopButtons.includes(needed)) return next();
+  return res.status(403).json({ success: false, message: "คุณไม่มีสิทธิ์ดำเนินการนี้" });
+});
 
 let shopData = [];
 
@@ -394,7 +459,7 @@ app.get("/login", (req, res) => {
 
 app.post("/login", async (req, res) => {
   const { username, password } = req.body || {};
-  const { owner, admins, marketing } = await loadCredentialsFromDB();
+  const { owner, admins, users } = await loadCredentialsFromDB();
 
   let role = null;
 
@@ -403,8 +468,8 @@ app.post("/login", async (req, res) => {
     role = "OWNER";
   } else if (admins.some(a => a.username === username && a.password === password)) {
     role = "ADMIN";
-  } else if (marketing.some(m => m.username === username && m.password === password)) {
-    role = "MARKETING";
+  } else if (users.some(m => m.username === username && m.password === password)) {
+    role = "USER";
   }
 
   if (role) {
@@ -435,14 +500,324 @@ app.get("/", isAuthenticated, (req, res) => {
 });
 
 
+// ข้อมูลผู้ใช้ที่ล็อกอินอยู่ + สิทธิ์ (ให้ frontend เอาไปซ่อน/แสดงปุ่มและเมนู)
+app.get("/api/me", isAuthenticated, async (req, res) => {
+  const { username, role } = req.session.user;
+  const permissions = await getUserPermissions(role, username);
+  res.json({ username, role, permissions });
+});
+
 // สำหรับโหลดเนื้อหาย่อย เช่น main.html ฯลฯ
-app.get("/page/:name", isAuthenticated, (req, res) => {
+app.get("/page/:name", isAuthenticated, async (req, res) => {
   const name = req.params.name;
+  const { username, role } = req.session.user;
+
+  // หน้าผู้จัดการ (จัดการสิทธิ์ / จัดการ prefix) — OWNER หรือ ADMIN ที่ได้รับสิทธิ์
+  if (name === "permissions" || name === "prefixes") {
+    if (!(await userCanManage(req.session.user, name))) {
+      return res.status(403).send("คุณไม่มีสิทธิ์เข้าถึงหน้านี้");
+    }
+    return res.sendFile(path.join(__dirname, "views", `${name}.html`));
+  }
+
   const allowed = ["main", "dashboard", "settings", "logs", "send-message"];
   if (!allowed.includes(name)) {
     return res.status(404).send("ไม่พบหน้านี้");
   }
+
+  // บังคับสิทธิ์ sidebar (OWNER ผ่านเสมอ)
+  if (role !== "OWNER") {
+    const perms = await getUserPermissions(role, username);
+    if (!perms.sidebar.includes(name)) {
+      return res.status(403).send("คุณไม่มีสิทธิ์เข้าถึงหน้านี้");
+    }
+  }
+
   res.sendFile(path.join(__dirname, "views", `${name}.html`));
+});
+
+// ===== สิทธิ์ผู้จัดการ (OWNER หรือ ADMIN ที่ได้รับมอบ) =====
+// page = "permissions" หรือ "prefixes"
+async function userCanManage(sessionUser, page) {
+  if (!sessionUser) return false;
+  if (sessionUser.role === "OWNER") return true;
+  if (sessionUser.role === "ADMIN") {
+    const perms = await getUserPermissions("ADMIN", sessionUser.username);
+    return perms.adminPages.includes(page);
+  }
+  return false;
+}
+
+function requireManage(page) {
+  return async (req, res, next) => {
+    const u = req.session?.user;
+    if (!u) return res.status(401).json({ success: false, message: "กรุณาเข้าสู่ระบบ" });
+    if (await userCanManage(u, page)) return next();
+    return res.status(403).json({ success: false, message: "คุณไม่มีสิทธิ์ดำเนินการนี้" });
+  };
+}
+
+// จัดการได้เฉพาะ role ที่ต่ำกว่า — OWNER จัดการ ADMIN+USER, ADMIN จัดการได้แค่ USER
+function canManageTargetRole(sessionUser, targetRole) {
+  if (sessionUser?.role === "OWNER") return ["ADMIN", "USER"].includes(targetRole);
+  if (sessionUser?.role === "ADMIN") return targetRole === "USER";
+  return false;
+}
+
+// รายการสิทธิ์ทั้งหมดในระบบ + รายชื่อผู้ใช้ (ADMIN/USER) พร้อมสิทธิ์ปัจจุบัน
+app.get("/api/permissions/users", isAuthenticated, requireManage("permissions"), async (req, res) => {
+  try {
+    // อ่านจาก raw collection ตรงๆ เลี่ยงปัญหา Mongoose schema cache / field ที่ไม่อยู่ใน schema
+    const data = await Credentials.collection.findOne({}) || {};
+
+    // รองรับ field ชื่อเก่า (USERS/MARKETING) เผื่อยังไม่ได้ migrate
+    const roleArr = (role) => {
+      if (role === "USER") return data.USER || data.USERS || data.MARKETING || [];
+      return data[role] || [];
+    };
+
+    const buildList = (role) =>
+      (Array.isArray(roleArr(role)) ? roleArr(role) : []).map(u => ({
+        username: u.username,
+        role,
+        sidebar: Array.isArray(u.permissions?.sidebar) ? u.permissions.sidebar : [],
+        shopButtons: Array.isArray(u.permissions?.shopButtons) ? u.permissions.shopButtons : [],
+        setbotFunctions: Array.isArray(u.permissions?.setbotFunctions) ? u.permissions.setbotFunctions : [],
+        adminPages: Array.isArray(u.permissions?.adminPages) ? u.permissions.adminPages : [],
+      }));
+
+    res.json({
+      pages: ALL_PAGES.map(k => ({ key: k, label: PAGE_LABELS[k] })),
+      shopButtons: ALL_SHOP_BUTTONS.map(k => ({ key: k, label: SHOP_BUTTON_LABELS[k] })),
+      setbotFuncs: ALL_SETBOT_FUNCS.map(k => ({ key: k, label: SETBOT_FUNC_LABELS[k] })),
+      adminPages: ALL_ADMIN_PAGES.map(k => ({ key: k, label: ADMIN_PAGE_LABELS[k] })),
+      isOwner: req.session.user.role === "OWNER", // เฉพาะ OWNER จึงแก้สิทธิ์ผู้จัดการได้
+      // OWNER เห็น ADMIN+USER, ADMIN เห็นเฉพาะ USER
+      users: req.session.user.role === "OWNER"
+        ? [...buildList("ADMIN"), ...buildList("USER")]
+        : [...buildList("USER")],
+    });
+  } catch (err) {
+    console.error("❌ โหลดรายการสิทธิ์ล้มเหลว:", err.message);
+    res.status(500).json({ success: false, message: "เกิดข้อผิดพลาด" });
+  }
+});
+
+// บันทึกสิทธิ์ของผู้ใช้คนหนึ่ง
+app.post("/api/permissions/update", isAuthenticated, requireManage("permissions"), async (req, res) => {
+  const { role, username, sidebar, shopButtons, setbotFunctions, adminPages } = req.body || {};
+  if (!["ADMIN", "USER"].includes(role) || !username) {
+    return res.status(400).json({ success: false, message: "ข้อมูลไม่ถูกต้อง" });
+  }
+  if (!canManageTargetRole(req.session.user, role)) {
+    return res.status(403).json({ success: false, message: "คุณไม่มีสิทธิ์จัดการบัญชีระดับนี้" });
+  }
+  try {
+    const validSidebar = (Array.isArray(sidebar) ? sidebar : []).filter(k => ALL_PAGES.includes(k));
+    // ปุ่มในหน้าหลักจะเก็บได้เฉพาะเมื่อมีสิทธิ์เมนูหน้าหลัก (main) เท่านั้น
+    const validButtons = validSidebar.includes("main")
+      ? (Array.isArray(shopButtons) ? shopButtons : []).filter(k => ALL_SHOP_BUTTONS.includes(k))
+      : [];
+    // ฟังก์ชันย่อยจะเก็บเฉพาะเมื่อมีสิทธิ์ปุ่ม setbot เท่านั้น
+    const validSetbot = validButtons.includes("setbot")
+      ? (Array.isArray(setbotFunctions) ? setbotFunctions : []).filter(k => ALL_SETBOT_FUNCS.includes(k))
+      : [];
+
+    const set = {
+      [`${role}.$[u].permissions.sidebar`]: validSidebar,
+      [`${role}.$[u].permissions.shopButtons`]: validButtons,
+      [`${role}.$[u].permissions.setbotFunctions`]: validSetbot,
+    };
+
+    // สิทธิ์ผู้จัดการ — เฉพาะ OWNER เท่านั้นที่มอบได้ และมอบให้ ADMIN เท่านั้น (กันการยกระดับสิทธิ์ตัวเอง)
+    if (req.session.user.role === "OWNER") {
+      set[`${role}.$[u].permissions.adminPages`] = (role === "ADMIN")
+        ? (Array.isArray(adminPages) ? adminPages : []).filter(k => ALL_ADMIN_PAGES.includes(k))
+        : [];
+    }
+
+    const result = await Credentials.updateOne(
+      {},
+      { $set: set },
+      { arrayFilters: [{ "u.username": username }] }
+    );
+
+    if (!result.matchedCount) {
+      return res.status(404).json({ success: false, message: "ไม่พบผู้ใช้นี้" });
+    }
+    res.json({ success: true, message: "บันทึกสิทธิ์เรียบร้อย" });
+  } catch (err) {
+    console.error("❌ บันทึกสิทธิ์ล้มเหลว:", err.message);
+    res.status(500).json({ success: false, message: "เกิดข้อผิดพลาด" });
+  }
+});
+
+// ตรวจชื่อผู้ใช้ซ้ำในทุก role
+function usernameExists(data, username) {
+  return ["OWNER", "ADMIN", "USER"].some(r =>
+    (Array.isArray(data?.[r]) ? data[r] : []).some(u => u.username === username)
+  );
+}
+
+// สร้างบัญชีผู้ใช้ใหม่
+app.post("/api/permissions/create-user", isAuthenticated, requireManage("permissions"), async (req, res) => {
+  const role = req.body?.role;
+  const username = req.body?.username?.trim();
+  const password = req.body?.password?.trim();
+  if (!["ADMIN", "USER"].includes(role) || !username || !password) {
+    return res.status(400).json({ success: false, message: "กรุณากรอกข้อมูลให้ครบ" });
+  }
+  if (!canManageTargetRole(req.session.user, role)) {
+    return res.status(403).json({ success: false, message: "คุณไม่มีสิทธิ์สร้างบัญชีระดับนี้" });
+  }
+  try {
+    const data = await Credentials.findOne();
+    if (usernameExists(data, username)) {
+      return res.status(409).json({ success: false, message: "มีชื่อผู้ใช้นี้อยู่แล้ว" });
+    }
+    await Credentials.updateOne({}, {
+      $push: { [role]: { username, password, permissions: { sidebar: [], shopButtons: [] } } }
+    });
+    res.json({ success: true, message: "สร้างบัญชีเรียบร้อย" });
+  } catch (err) {
+    console.error("❌ สร้างบัญชีล้มเหลว:", err.message);
+    res.status(500).json({ success: false, message: "เกิดข้อผิดพลาด" });
+  }
+});
+
+// แก้ไขบัญชี (ชื่อผู้ใช้ / รหัสผ่าน)
+app.post("/api/permissions/edit-user", isAuthenticated, requireManage("permissions"), async (req, res) => {
+  const role = req.body?.role;
+  const oldUsername = req.body?.oldUsername;
+  const username = req.body?.username?.trim();
+  const password = req.body?.password?.trim();
+  if (!["ADMIN", "USER"].includes(role) || !oldUsername || !username) {
+    return res.status(400).json({ success: false, message: "ข้อมูลไม่ถูกต้อง" });
+  }
+  if (!canManageTargetRole(req.session.user, role)) {
+    return res.status(403).json({ success: false, message: "คุณไม่มีสิทธิ์จัดการบัญชีระดับนี้" });
+  }
+  try {
+    const data = await Credentials.findOne();
+    if (username !== oldUsername && usernameExists(data, username)) {
+      return res.status(409).json({ success: false, message: "มีชื่อผู้ใช้นี้อยู่แล้ว" });
+    }
+    const set = { [`${role}.$[u].username`]: username };
+    if (password) set[`${role}.$[u].password`] = password;
+
+    const result = await Credentials.updateOne(
+      {}, { $set: set }, { arrayFilters: [{ "u.username": oldUsername }] }
+    );
+    if (!result.matchedCount) {
+      return res.status(404).json({ success: false, message: "ไม่พบผู้ใช้นี้" });
+    }
+    res.json({ success: true, message: "แก้ไขเรียบร้อย" });
+  } catch (err) {
+    console.error("❌ แก้ไขบัญชีล้มเหลว:", err.message);
+    res.status(500).json({ success: false, message: "เกิดข้อผิดพลาด" });
+  }
+});
+
+// ลบบัญชี
+app.post("/api/permissions/delete-user", isAuthenticated, requireManage("permissions"), async (req, res) => {
+  const role = req.body?.role;
+  const username = req.body?.username;
+  if (!["ADMIN", "USER"].includes(role) || !username) {
+    return res.status(400).json({ success: false, message: "ข้อมูลไม่ถูกต้อง" });
+  }
+  if (!canManageTargetRole(req.session.user, role)) {
+    return res.status(403).json({ success: false, message: "คุณไม่มีสิทธิ์ลบบัญชีระดับนี้" });
+  }
+  try {
+    const result = await Credentials.updateOne({}, { $pull: { [role]: { username } } });
+    if (!result.modifiedCount) {
+      return res.status(404).json({ success: false, message: "ไม่พบผู้ใช้นี้" });
+    }
+    res.json({ success: true, message: "ลบบัญชีเรียบร้อย" });
+  } catch (err) {
+    console.error("❌ ลบบัญชีล้มเหลว:", err.message);
+    res.status(500).json({ success: false, message: "เกิดข้อผิดพลาด" });
+  }
+});
+
+// ===== จัดการ Prefix (OWNER หรือ ADMIN ที่ได้รับสิทธิ์) =====
+// collection prefixes เก็บเป็น 1 document field `prefix` เป็น array — ใช้ raw collection
+app.get("/api/prefixes", isAuthenticated, requireManage("prefixes"), async (req, res) => {
+  try {
+    const doc = await PrefixForshop.collection.findOne({});
+    const list = Array.isArray(doc?.prefix) ? doc.prefix : [];
+    res.json({ prefixes: list });
+  } catch (err) {
+    console.error("❌ โหลด prefixes ล้มเหลว:", err.message);
+    res.status(500).json({ success: false, message: "เกิดข้อผิดพลาด" });
+  }
+});
+
+app.post("/api/add-prefix", isAuthenticated, requireManage("prefixes"), async (req, res) => {
+  const prefix = req.body?.prefix?.trim().toUpperCase();
+  if (!prefix) return res.status(400).json({ success: false, message: "กรุณากรอก prefix" });
+  try {
+    const doc = await PrefixForshop.collection.findOne({});
+    const list = Array.isArray(doc?.prefix) ? doc.prefix : [];
+    if (list.includes(prefix)) {
+      return res.status(409).json({ success: false, message: "มี prefix นี้อยู่แล้ว" });
+    }
+    if (doc) {
+      await PrefixForshop.collection.updateOne({ _id: doc._id }, { $addToSet: { prefix } });
+    } else {
+      await PrefixForshop.collection.insertOne({ prefix: [prefix] });
+    }
+    res.json({ success: true, message: "เพิ่ม prefix เรียบร้อย" });
+  } catch (err) {
+    console.error("❌ เพิ่ม prefix ล้มเหลว:", err.message);
+    res.status(500).json({ success: false, message: "เกิดข้อผิดพลาด" });
+  }
+});
+
+app.post("/api/delete-prefix", isAuthenticated, requireManage("prefixes"), async (req, res) => {
+  const prefix = req.body?.prefix;
+  if (!prefix) return res.status(400).json({ success: false, message: "ข้อมูลไม่ถูกต้อง" });
+  try {
+    // กันลบ prefix ที่ยังมีร้านใช้อยู่
+    const usedByShop = await Shop.findOne({ prefix });
+    if (usedByShop) {
+      return res.status(400).json({ success: false, message: `ลบไม่ได้: มีร้าน "${usedByShop.name}" ใช้ prefix นี้อยู่` });
+    }
+    await PrefixForshop.collection.updateOne({}, { $pull: { prefix } });
+    res.json({ success: true, message: "ลบ prefix เรียบร้อย" });
+  } catch (err) {
+    console.error("❌ ลบ prefix ล้มเหลว:", err.message);
+    res.status(500).json({ success: false, message: "เกิดข้อผิดพลาด" });
+  }
+});
+
+// เปลี่ยนรหัสผ่านของตัวเอง (ทุก role ที่ล็อกอินอยู่)
+app.post("/api/change-password", isAuthenticated, async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  const { username, role } = req.session.user;
+
+  if (!currentPassword || !newPassword?.trim()) {
+    return res.status(400).json({ success: false, message: "กรุณากรอกข้อมูลให้ครบ" });
+  }
+  try {
+    const data = await Credentials.findOne();
+    const arr = Array.isArray(data?.[role]) ? data[role] : [];
+    const user = arr.find(u => u.username === username);
+    if (!user) return res.status(404).json({ success: false, message: "ไม่พบบัญชีผู้ใช้" });
+    if (user.password !== currentPassword) {
+      return res.status(403).json({ success: false, message: "รหัสผ่านปัจจุบันไม่ถูกต้อง" });
+    }
+
+    await Credentials.updateOne(
+      {},
+      { $set: { [`${role}.$[u].password`]: newPassword.trim() } },
+      { arrayFilters: [{ "u.username": username }] }
+    );
+    res.json({ success: true, message: "เปลี่ยนรหัสผ่านเรียบร้อย" });
+  } catch (err) {
+    console.error("❌ เปลี่ยนรหัสผ่านล้มเหลว:", err.message);
+    res.status(500).json({ success: false, message: "เกิดข้อผิดพลาด" });
+  }
 });
 
 app.post('/api/save-phone', async (req, res) => {
@@ -466,10 +841,6 @@ app.get("/api/env", (req, res) => {
   res.json({ URL: process.env.URL });
 });
 
-// สถานะ GPT — บอก Dashboard ว่าโควต้าหมด/ปิดอยู่หรือไม่ (Level 3)
-app.get("/api/gpt-status", (req, res) => {
-  res.json(getGptStatus());
-});
 
 // 4) Endpoint สำหรับส่งข้อมูลร้านค้า
 app.get("/api/shops", async (req, res) => {
@@ -987,11 +1358,11 @@ app.get('/api/settings', async (req, res) => {
     const settings = await loadSettings(); // 👉 โหลดจาก MongoDB
     if (!settings) throw new Error("ไม่พบ settings");
 
-    // แปลง ms → s สำหรับ frontend
+    // แปลงหน่วยสำหรับ frontend: timeLimit + sameQrTimeLimit ms→นาที
     res.json({
       ...settings,
-      timeLimit: settings.timeLimit / 1000,
-      sameQrTimeLimit: settings.sameQrTimeLimit / 1000
+      timeLimit: settings.timeLimit / 60000,
+      sameQrTimeLimit: settings.sameQrTimeLimit / 60000
     });
   } catch (err) {
     console.error("❌ โหลด settings ไม่สำเร็จ:", err.message);
@@ -1390,73 +1761,22 @@ export function broadcastPhoneUpdate(userId, phoneNumber, lineName) {
   });
 }
 
-function setCorrectSignature(channelSecret) {
-    return (req, res, next) => {
-      if (!Buffer.isBuffer(req.body)) {
-        console.error("❌ req.body ไม่ใช่ Buffer");
-        return res.status(400).send("Invalid request format");
-      }
-  
-      const computedSignature = crypto
-        .createHmac("sha256", channelSecret)
-        .update(req.body)
-        .digest("base64");
-  
-      req.headers["x-line-signature"] = computedSignature;
-      next();
-    };
-  }
-
+// webhook ใช้ route เดียวแบบ dynamic แล้ว (ดูด้านบน) — setupWebhooks เหลือแค่ refresh cache
 const setupWebhooks = async () => {
-    // ลบเฉพาะ route ที่ขึ้นต้นด้วย "/webhook"
-    app._router.stack = app._router.stack.filter((layer) => {
-      return !(
-        layer.route &&
-        layer.route.path &&
-        layer.route.path.startsWith("/webhook")
-      );
-    });
-
-    await loadShopData(); // ใช้ async version
-
-    shopData.forEach((shop) => {
-      shop.lines.forEach((lineAccount) => {
-        const prefix = shop.prefix;
-        const lineName = lineAccount.linename;
-        const channelID = String(lineAccount.channel_id).slice(-4);
-        const lineConfig = {
-          channelAccessToken: String(lineAccount.access_token),
-          channelSecret: String(lineAccount.secret_token),
-        };
-            const accessToken = lineConfig.channelAccessToken
-            const client = new line.Client(lineConfig);
-            const route = `/webhook/${shop.prefix}/${channelID}.bot`;
-            console.log(`📌 Registered webhook: ${route}`);
-
-            // กำหนด Middleware ให้ใช้ `express.raw()` เฉพาะ Webhook เท่านั้น
-            app.post(
-              route,
-              setCorrectSignature(lineConfig.channelSecret),
-              (err, req, res, next) => { console.error(`❌ setCorrectSignature error [${route}]:`, err?.message); next(err); },
-              line.middleware(lineConfig),
-              (err, req, res, next) => { console.error(`❌ line.middleware error [${route}]:`, err?.message); res.status(err?.status || 500).send(err?.message || "Error"); },
-              async (req, res) => {
-                const events = req.body.events || [];
-                await Promise.all(
-                  events.map(async (event) => await handleEvent(event, client, prefix, lineName, accessToken, baseURL))
-                );
-                res.status(200).send("OK");
-              }
-          );
-      });
-  });
+  await loadShopData(); // refresh cache ร้านค้า (ไม่ต้อง register route อีกแล้ว)
 };
 
+// เรียกหลังแก้ข้อมูลร้าน/LINE/ธนาคาร — refresh cache เท่านั้น (route ไม่ต้องสร้างใหม่)
 export const restartWebhooks = async () => {
-  console.log("พบการแก้ไขข้อมูล รีสตาร์ทบอทแล้ว...");
-  broadcastLog("พบการแก้ไขข้อมูล รีสตาร์ทบอทแล้ว...");
-  await loadBankAccounts();        // รอโหลดให้เสร็จจริง ๆ ก่อนใช้
-  await setupWebhooks();           // รีเซ็ต webhook
+  try {
+    console.log("พบการแก้ไขข้อมูล รีโหลดข้อมูลแล้ว...");
+    broadcastLog("พบการแก้ไขข้อมูล รีโหลดข้อมูลแล้ว...");
+    await loadBankAccounts();
+    await setupWebhooks();
+  } catch (err) {
+    console.error("❌ restartWebhooks ล้มเหลว:", err?.message || err);
+    broadcastLog(`❌ restartWebhooks ล้มเหลว: ${err?.message || err}`);
+  }
 };
 
 app.listen(PORT, async () => {
@@ -1465,6 +1785,7 @@ app.listen(PORT, async () => {
 
   try {
     await connectDB();
+    await migrateRoleToUser();
     await loadBankAccounts();
     await setupWebhooks();
     console.log("All services initialized");
@@ -1472,3 +1793,18 @@ app.listen(PORT, async () => {
     console.error("Initialization failed:", err);
   }
 });
+
+// ย้ายข้อมูล role เดิม (MARKETING หรือ USERS) → USER (รันครั้งเดียว, idempotent)
+async function migrateRoleToUser() {
+  try {
+    for (const oldName of ["MARKETING", "USERS"]) {
+      const res = await Credentials.collection.updateMany(
+        { [oldName]: { $exists: true }, USER: { $exists: false } },
+        { $rename: { [oldName]: "USER" } }
+      );
+      if (res.modifiedCount) console.log(`ℹ️  ย้าย role ${oldName} → USER สำเร็จ (${res.modifiedCount} เอกสาร)`);
+    }
+  } catch (err) {
+    console.error("❌ ย้าย role → USER ล้มเหลว:", err.message);
+  }
+}

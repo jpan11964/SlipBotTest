@@ -450,6 +450,7 @@ async function openShopSetBotModal(prefix) {
 
   const html = `
         <div class="bottext-settings">
+        ${canSetbot("withdraw") ? `
         <div class="setting-box">
             <div class="buttonsBot">
             <label class="switch-label">ปิด / เปิดการถอน</label>
@@ -459,8 +460,9 @@ async function openShopSetBotModal(prefix) {
                 <span class="slider round"></span>
             </label>
             </div>
-        </div>
-        
+        </div>` : ""}
+
+        ${canSetbot("textbot") ? `
         <div class="setting-box">
             <div class="buttonsBot">
             <label class="switch-label">ปิด / เปิดบอทตอบข้อความ</label>
@@ -470,8 +472,9 @@ async function openShopSetBotModal(prefix) {
                 <span class="slider round"></span>
             </label>
             </div>
-        </div>
+        </div>` : ""}
 
+        ${canSetbot("slipoption") ? `
         <div class="setting-option-box">
             <div class="slip-check-option">
             <label class="select-label">ตัวเลือกการตรวจสลิป</label>
@@ -484,8 +487,9 @@ async function openShopSetBotModal(prefix) {
                 </option>
             </select>
             </div>
-        </div>
+        </div>` : ""}
 
+        ${canSetbot("bonustime") ? `
         <div class="setting-box">
         <div class="bonus-row">
             <div class="buttonsBot">
@@ -542,8 +546,9 @@ async function openShopSetBotModal(prefix) {
                 </div>
             </div>
         </div>
-        </div> 
+        </div>` : ""}
 
+        ${canSetbot("password") ? `
         <div class="setting-box">
         <div class="password-row">
             <div class="buttonsBot">
@@ -582,7 +587,7 @@ async function openShopSetBotModal(prefix) {
             onerror="this.style.display='none';"
         >
         </div>
-        </div>
+        </div>` : ""}
   `;
 
   document.getElementById("shopSetbotBody").innerHTML = html;
@@ -742,9 +747,27 @@ document.addEventListener("click", (e) => {
     }
 });
 
+// เช็คสิทธิ์ปุ่ม — OWNER เห็นทุกปุ่ม, คนอื่นเห็นเฉพาะที่ได้รับสิทธิ์
+function canBtn(key) {
+    const me = window.__me;
+    if (!me || me.role === "OWNER") return true;
+    return (me.permissions?.shopButtons || []).includes(key);
+}
+
+// เช็คสิทธิ์ฟังก์ชันย่อยในปุ่มตั้งค่าบอท
+function canSetbot(key) {
+    const me = window.__me;
+    if (!me || me.role === "OWNER") return true;
+    return (me.permissions?.setbotFunctions || []).includes(key);
+}
+
 function renderShopCards() {
     const shopListElement = document.getElementById("shop-list");
     if (!shopListElement) return;
+
+    // ปุ่มเพิ่มร้านค้า (footer) — ซ่อนถ้าไม่มีสิทธิ์
+    const addBtn = document.querySelector(".btn-add-shop");
+    if (addBtn) addBtn.style.display = canBtn("addshop") ? "" : "none";
 
     if (!shopData.length) {
         shopListElement.innerHTML = '<div class="no-shop">ยังไม่มีข้อมูลร้านค้า</div>';
@@ -767,19 +790,21 @@ function renderShopCards() {
             </div>
 
             <div class="buttons">
+            ${canBtn("toggle") ? `
             <span class="toggle-label">เปิด / ปิดบอท</span>
             <label class="switch">
                 <input type="checkbox" ${shop.status ? "checked" : ""} onchange="handleToggle('${shop.prefix}', this)">
                 <span class="slider"></span>
-            </label>
+            </label>` : ""}
+            ${canBtn("line") ? `
             <button class="btn btn-line" onclick="openShopLinesModal('${shop.prefix}')">
             <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/LINE_logo.svg/120px-LINE_logo.svg.png" class="btn-logo" alt="LINE Logo"/>
             ไลน์ร้าน
-            </button>
-            <button class="btn btn-bank" onclick="openBankModal('${shop.prefix}')">จัดการบัญชีธนาคาร</button>
-            <button class="btn btn-setBot" onclick="openShopSetBotModal('${shop.prefix}')">ตั้งค่าบอท</button>
-            <button class="btn btn-edit" onclick="openEditShopModal('${shop.name}', '${shop.prefix}')">แก้ไข</button>
-            <button class="btn btn-delete" onclick="deleteShop('${shop.prefix}')">ลบร้านค้า</button>
+            </button>` : ""}
+            ${canBtn("bank") ? `<button class="btn btn-bank" onclick="openBankModal('${shop.prefix}')">จัดการบัญชีธนาคาร</button>` : ""}
+            ${canBtn("setbot") ? `<button class="btn btn-setBot" onclick="openShopSetBotModal('${shop.prefix}')">ตั้งค่าบอท</button>` : ""}
+            ${canBtn("edit") ? `<button class="btn btn-edit" onclick="openEditShopModal('${shop.name}', '${shop.prefix}')">แก้ไข</button>` : ""}
+            ${canBtn("delete") ? `<button class="btn btn-delete" onclick="deleteShop('${shop.prefix}')">ลบร้านค้า</button>` : ""}
             </div>
         </div>
         `;
@@ -796,10 +821,31 @@ async function loadShopsAndRender() {
 
         renderShopFilterMenu();
         renderShopCards();
+        initAddShopBtnWatcher();
 
     } catch (err) {
         console.error("❌ โหลดข้อมูลร้านค้าไม่สำเร็จ:", err);
     }
+}
+
+// ซ่อนปุ่ม "เพิ่มร้านค้า" เมื่อมี modal ใดเปิดอยู่ (กันปุ่มลอยทับ modal)
+function updateAddShopBtnVisibility() {
+    const addBtn = document.querySelector(".btn-add-shop");
+    if (!addBtn) return;
+    if (!canBtn("addshop")) { addBtn.style.display = "none"; return; }
+    const anyModalOpen = Array.from(document.querySelectorAll(".modal"))
+        .some(m => getComputedStyle(m).display !== "none");
+    addBtn.style.display = anyModalOpen ? "none" : "";
+}
+
+function initAddShopBtnWatcher() {
+    // main.html ถูก inject ใหม่ทุกครั้งที่เข้าหน้าหลัก → modal เป็น node ใหม่ ต้อง re-bind
+    if (window._addShopWatcher) window._addShopWatcher.disconnect();
+    const obs = new MutationObserver(updateAddShopBtnVisibility);
+    document.querySelectorAll(".modal").forEach(m =>
+        obs.observe(m, { attributes: true, attributeFilter: ["style", "class"] })
+    );
+    window._addShopWatcher = obs;
 }
 
 // Event เริ่มต้น

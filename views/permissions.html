@@ -1,0 +1,72 @@
+<div class="permissions-page">
+  <div class="permissions-container">
+    <div class="permissions-head">
+      <div>
+        <h1 class="page-title">จัดการสิทธิ์ผู้ใช้</h1>
+        <p class="permissions-subtitle">กำหนดว่าแต่ละผู้ใช้เห็นเมนูและปุ่มใดได้บ้าง</p>
+      </div>
+      <button class="perm-create-btn" onclick="openCreateUserModal()">
+        <i class="bi bi-person-plus"></i> สร้างบัญชีใหม่
+      </button>
+    </div>
+
+    <div class="permissions-list" id="permissions-list">
+      <p class="perm-loading">กำลังโหลด...</p>
+    </div>
+  </div>
+
+  <!-- Modal: สร้างบัญชีใหม่ -->
+  <div class="perm-modal" id="createUserModal" hidden>
+    <div class="perm-modal-box">
+      <div class="perm-modal-head">
+        <h3>สร้างบัญชีใหม่</h3>
+        <button class="perm-modal-close" onclick="closeCreateUserModal()">&times;</button>
+      </div>
+      <div class="perm-field">
+        <label>บทบาท</label>
+        <select id="createRole">
+          <option value="ADMIN">ADMIN</option>
+          <option value="USER">USER</option>
+        </select>
+      </div>
+      <div class="perm-field">
+        <label>ชื่อผู้ใช้</label>
+        <input type="text" id="createUsername" autocomplete="off">
+      </div>
+      <div class="perm-field">
+        <label>รหัสผ่าน</label>
+        <input type="text" id="createPassword" autocomplete="off">
+      </div>
+      <div class="perm-modal-status" id="createStatus"></div>
+      <button class="perm-modal-save" onclick="submitCreateUser()">บันทึก</button>
+    </div>
+  </div>
+
+  <!-- Modal: แก้ไขบัญชี -->
+  <div class="perm-modal" id="editUserModal" hidden>
+    <div class="perm-modal-box">
+      <div class="perm-modal-head">
+        <h3>แก้ไขบัญชี</h3>
+        <button class="perm-modal-close" onclick="closeEditUserModal()">&times;</button>
+      </div>
+      <input type="hidden" id="editRole">
+      <input type="hidden" id="editOldUsername">
+      <div class="perm-field">
+        <label>ชื่อผู้ใช้</label>
+        <input type="text" id="editUsername" autocomplete="off">
+      </div>
+      <div class="perm-field">
+        <label>รหัสผ่านใหม่ <span class="perm-hint">(เว้นว่างถ้าไม่เปลี่ยน)</span></label>
+        <input type="text" id="editPassword" autocomplete="off" placeholder="••••••">
+      </div>
+      <div class="perm-modal-status" id="editStatus"></div>
+      <div class="perm-modal-actions">
+        <button class="perm-modal-delete" onclick="submitDeleteUser()">
+          <i class="bi bi-trash"></i> ลบบัญชี
+        </button>
+        <button class="perm-modal-save" onclick="submitEditUser()">บันทึก</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="/views/js/permissions.js"></script>

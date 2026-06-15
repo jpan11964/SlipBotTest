@@ -38,13 +38,15 @@ dayjs.extend(timezone);
 
 async function handleEvent(event, client, prefix, linename, accessToken, baseURL) {
   const shop = await Shop.findOne({ prefix });
-  const bonusTimeStatus = shop.statusBonusTime;
-  const PasswordStatus = shop.statusPassword;
 
+  // ตรวจ shop ก่อนอ่านค่า (กัน TypeError ถ้า shop = null)
   if (!shop || !shop.status) {
     console.log('ร้านปิดการทำงาน');
     return;
   }
+
+  const bonusTimeStatus = shop.statusBonusTime;
+  const PasswordStatus = shop.statusPassword;
 
   if (event.timestamp < programStartTime) {
     return;

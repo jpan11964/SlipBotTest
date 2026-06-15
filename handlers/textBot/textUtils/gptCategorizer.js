@@ -13,30 +13,20 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ===== GPT Cooldown (Level 2) =====
-// เมื่อเจอ 429 (โควต้าหมด) → ปิด GPT ชั่วคราว เพื่อไม่ให้ยิง API ซ้ำๆ
-const GPT_COOLDOWN_MS = 60 * 60 * 1000; // 1 ชั่วโมง
-let gptDisabledUntil = 0;
-
-function isGptDisabled() {
-  return Date.now() < gptDisabledUntil;
-}
-
-function gptMinutesLeft() {
-  return Math.max(0, Math.ceil((gptDisabledUntil - Date.now()) / 60000));
-}
-
-function disableGpt() {
-  gptDisabledUntil = Date.now() + GPT_COOLDOWN_MS;
-}
-
-// export ให้ Dashboard เรียกเช็คสถานะ GPT ได้ (Level 3)
-function getGptStatus() {
-  return {
-    disabled: isGptDisabled(),
-    minutesLeft: gptMinutesLeft(),
-    until: gptDisabledUntil ? new Date(gptDisabledUntil).toISOString() : null,
-  };
+// ===== แจ้งเตือน Telegram เมื่อโควต้า GPT หมด =====
+async function sendTelegramAlert(message) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: message }),
+    });
+  } catch (err) {
+    console.error('❌ Telegram alert ล้มเหลว:', err.message);
+  }
 }
 
 const categoryMap = {
@@ -100,14 +90,6 @@ const categoryMap = {
  * ส่งข้อความไปยัง GPT แล้วรับข้อความตอบกลับ
  */
 async function askGPT(userMessage) {
-  // ถ้า GPT ถูกปิดชั่วคราว (โควต้าหมด) → ข้าม ไม่ยิง API ซ้ำ
-  if (isGptDisabled()) {
-    const mins = gptMinutesLeft();
-    console.warn(`⏳ GPT ปิดชั่วคราว (โควต้าหมด) — เปิดใหม่ในอีก ${mins} นาที`);
-    broadcastLog(`⏳ GPT ปิดชั่วคราว (โควต้าหมด) — เปิดใหม่ในอีก ${mins} นาที`);
-    return '';
-  }
-
   const prompt = `คุณเป็นผู้เชี่ยวชาญทางภาษาที่วิเคราะห์ประโยคจากข้อความเพื่อหาบริบทของข้อความนั้นๆ โดยให้ตอบกลับมาในรูปแบบต่อไปนี้:
 
 รายการหมวดหมู่ที่เป็นไปได้ ตามรูปแบบด้านล่างเท่านั้น:
@@ -265,13 +247,11 @@ async function askGPT(userMessage) {
     return reply;
 
   } catch (error) {
-    // ตรวจว่าเป็น 429
     if (error.status === 429) {
-      disableGpt(); // ปิด GPT ชั่วคราว 1 ชั่วโมง
-      const mins = gptMinutesLeft();
-      console.warn(`❌ โค้วต้า GPT หมด (429 Rate Limit) — ปิด GPT ชั่วคราว เปิดใหม่ในอีก ${mins} นาที`);
-      broadcastLog(`❌ โค้วต้า GPT หมด (429 Rate Limit) — ปิด GPT ชั่วคราว เปิดใหม่ในอีก ${mins} นาที`);
-      return ''; // ส่งกลับว่างไปเลย
+      console.warn(`❌ โค้วต้า GPT หมด (429 Rate Limit)`);
+      broadcastLog(`❌ โค้วต้า GPT หมด (429 Rate Limit)`);
+      sendTelegramAlert('❌ SlipBot แจ้งเตือน: โควต้า GPT หมด (429 Rate Limit)\nกรุณาตรวจสอบ OpenAI account');
+      return '';
     }
 
     console.error('❌ เกิดข้อผิดพลาดในการถาม GPT:', error);
@@ -301,4 +281,4 @@ function categorizeFromGptReply(gptReply) {
   };
 }
 
-export { askGPT, categorizeFromGptReply, getGptStatus };
+export { askGPT, categorizeFromGptReply };
